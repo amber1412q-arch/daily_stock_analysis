@@ -66,31 +66,33 @@ class PushplusSender:
             logger.warning("PushPlus Token 未配置，跳过推送")
             return False
 
+        # 支持多个 Token（逗号分隔），逐个推送
+        tokens = [t.strip() for t in self._pushplus_token.split(',') if t.strip()]
         api_url = "http://www.pushplus.plus/send"
 
         if title is None:
             date_str = datetime.now().strftime('%Y-%m-%d')
             title = f"📈 股票分析报告 - {date_str}"
 
-        try:
-            content_bytes = len(content.encode('utf-8'))
-            if content_bytes > self._pushplus_max_bytes:
-                logger.info(
-                    "PushPlus 消息内容超长(%s字节/%s字符)，将分批发送",
-                    content_bytes,
-                    len(content),
-                )
-                return self._send_pushplus_chunked(
-                    api_url,
-                    content,
-                    title,
-                    self._pushplus_max_bytes,
-                )
+        success = False
+        for token in tokens:
+            try:
+                content_bytes = len(content.encode('utf-8'))
+                if content_bytes > self._pushplus_max_bytes:
+                    logger.info(
+                        "PushPlus 消息内容超长(%s字节/%s字符)，将分批发送",
+                        content_bytes,
+                        len(content),
+                    )
+                    ok = self._send_pushplus_chunked(api_url, content, title, self._pushplus_max_bytes)
+                else:
+                    ok = self._send_pushplus_message(api_url, content, title, token=token, timeout_seconds=timeout_seconds)
+                if ok:
+                    success = True
+            except Exception as e:
+                logger.error(f"发送 PushPlus 消息失败 [{token[:8]}...]: {e}")
 
-            return self._send_pushplus_message(api_url, content, title, timeout_seconds=timeout_seconds)
-        except Exception as e:
-            logger.error(f"发送 PushPlus 消息失败: {e}")
-            return False
+        return success
 
     def _send_pushplus_message(
         self,
@@ -98,10 +100,11 @@ class PushplusSender:
         content: str,
         title: str,
         *,
+        token: Optional[str] = None,
         timeout_seconds: Optional[float] = None,
     ) -> bool:
         payload = {
-            "token": self._pushplus_token,
+            "token": token or self._pushplus_token,
             "title": title,
             "content": content,
             "template": "markdown",
